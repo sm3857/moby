@@ -17,4 +17,5 @@ type Backend interface {
 	DisconnectContainerFromNetwork(containerName string, networkName string, force bool) error
 	DeleteNetwork(name string) error
 	NetworksPrune(pruneFilters filters.Args) (*types.NetworksPruneReport, error)
+	ManageNetworkBandwidth(bc types.BandwidthCreateRequest) (*types.BandwidthCreateResponse, error)
 }

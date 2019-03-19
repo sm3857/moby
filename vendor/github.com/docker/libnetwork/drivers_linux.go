@@ -17,6 +17,7 @@ func getInitializers(experimental bool) []initializer {
 		{null.Init, "null"},
 		{remote.Init, "remote"},
 		{overlay.Init, "overlay"},
+		{bandwidth_drv.Init, "bandwidth_drv"},
 	}
 
 	if experimental {
