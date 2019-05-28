@@ -8,6 +8,7 @@ import (
 	"github.com/docker/docker/cli"
 	"github.com/docker/docker/cli/command"
 	"github.com/docker/docker/opts"
+	"github.com/docker/docker/api/types"
 	runconfigopts "github.com/docker/docker/runconfig/opts"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -29,7 +30,10 @@ type updateOptions struct {
 	kernelMemory       opts.MemBytes
 	restartPolicy      string
 	cpus               opts.NanoCPUs
-
+    setBandwidth        int32
+    interfaceName      string
+    speedType          string
+    removeBandwidth    bool
 	nFlag int
 
 	containers []string
@@ -70,6 +74,11 @@ func NewUpdateCommand(dockerCli *command.DockerCli) *cobra.Command {
 	flags.Var(&opts.cpus, "cpus", "Number of CPUs")
 	flags.SetAnnotation("cpus", "version", []string{"1.29"})
 
+	flags.Int32VarP(&opts.setBandwidth, "set-bandwidth-rate", 0, "Set Container Network Bandwidth Rate")
+	flags.StringVar(&opts.interfaceName, "interface-name", "", "Docker host physical interface name (optional when docker0 bridge)")
+	flags.StringVar(&opts.speedType, "speed-type", "", "Speed type in gbps | mbps | kbps | bits per second")
+	flags.BoolVar(&opts.removeBandwidth, "remove-bandwidth", false, " Remove Container network Bandwidth")
+
 	return cmd
 }
 
@@ -79,6 +88,27 @@ func runUpdate(dockerCli *command.DockerCli, opts *updateOptions) error {
 	if opts.nFlag == 0 {
 		return errors.New("You must provide one or more flags when using this command.")
 	}
+	if opts.setBandwidth!=0 && opts.removeBandwidth!=false {
+	    return errors.New("Cannot set and remove bandwidth same time for a container")
+	}
+	
+	if (opts.setBandwidth!=0 && opts.speedType="") || !(opts.setBandwidth!=0 && opts.speedType=""){
+	    return errors.New("Bandwidth should be set along with speedType (gbps | mbps | kbps") 
+	}
+	if (opts.setBandwidth!=0 && opts.speedType!="")||(opts.removeBandwidth){
+	    setBWFlag = 1
+	}
+    if opts.speedType != ""{
+        /* Allows speed only in bits per second */
+        if opts.speedTye == "kbps" {
+            opts.speedType == "kbit"
+        } else if opts.speedType == "mbps" {
+            opts.speedType = "mbit"
+        } else if opts.speedType == "gbps" {
+            opts.speedType = "gbit"
+        }
+    }
+
 
 	var restartPolicy containertypes.RestartPolicy
 	if opts.restartPolicy != "" {
@@ -102,6 +132,11 @@ func runUpdate(dockerCli *command.DockerCli, opts *updateOptions) error {
 		CPURealtimePeriod:  opts.cpuRealtimePeriod,
 		CPURealtimeRuntime: opts.cpuRealtimeRuntime,
 		NanoCPUs:           opts.cpus.Value(),
+		/*NetBWRate:          opts.setBandwidth,
+		InterfaceName:      opts.interfaceName,
+		SpeedType:          opts.speedType,
+		RemoveBandwidth     opts.removeBandwidth,*/
+		
 	}
 
 	updateConfig := containertypes.UpdateConfig{
@@ -123,6 +158,24 @@ func runUpdate(dockerCli *command.DockerCli, opts *updateOptions) error {
 			fmt.Fprintln(dockerCli.Out(), container)
 		}
 		warns = append(warns, r.Warnings...)
+		if setBWFlag ==1 {
+	    bwReq := types.BandwidthCreateRequest{
+	        Driver:			"bandwidth_drv",
+	        Container:		container,
+	        EgressMin:		opts.setBandwidth,
+	        EgressMax:		opts.setBandwidth,
+	        IngressMin:		opts.setBandwidth,
+	        IngressMax:		opts.setBandwidth,
+	        SpeedTypeIn:	opts.SpeedType,
+	        InterfaceName:	opts.InterfaceName,
+	        Remove:			opts.removeBandwidth,
+	    }
+	    bw_resp ,bw_err := dockerCli.Client().BandwidthCreateRequest(ctx, container, bwReq)
+	    if bw_err != nil {
+	        errs = append (errs, bw_err.Error())
+	    }
+	    warns = append(warns, bw_resp.Warning)
+	}
 	}
 	if len(warns) > 0 {
 		fmt.Fprintln(dockerCli.Out(), strings.Join(warns, "\n"))

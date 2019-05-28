@@ -264,16 +264,6 @@ func (r *Rules) RemoveBandwidth(container string, interfaceName string) error {
 
 }
 
-func get_interface(interfaceName string) (netlink.Link,error {
-	for interface := netlink.LinkList()
-	for _, link := range interface{
-		if link.Attrs().Name == interfaceName{
-			return link
-		}
-	}
-	return nil,LinkNotFoundError{fmt.Errorf("Link %s not found ", interfaceName)
-}
-
 func (r Rules) verifyAndSetCgroupClassid(name string, major_id uint32, ruleCount uint32, cgroupPath string) (uint32, uint32, uint32, error) {
 
 	var classid_major, classid_minor, classid uint32
@@ -348,11 +338,11 @@ func (r Rules) verifyAndAddTC(create types.BandwidthCreateRequest, interfaceName
 	if ruleCount == 1 {
 	    interfaceLink,error := netlink.LinkByName(tc_interface)
 	    if error== nil{
-	    	netems, _ := netlink.QDiscList(interfaceLink)
+	    	netems, _ := netlink.QdiscList(interfaceLink)
 	    	for _,netem := range netems{
 	    		err := netlink.QdiscDel(netem)
 	    		if err !=nil {
-	    			err = fmt.Errorf("Failed to delete tc qdisc on interface %s : %v", tc_in, err)
+	    			err = fmt.Errorf("Failed to delete tc qdisc on interface %s : %v", tc_interface, err)
 	    			return err
 	    		}
 	    	}
@@ -360,92 +350,45 @@ func (r Rules) verifyAndAddTC(create types.BandwidthCreateRequest, interfaceName
 	        errF = fmt.ErrorF("Failed to find link ",tc_interface, err)
 	        return errF
 	    }
-		//DONE: cmd := exec.Command(tc_binary, "qdisc", "del", "dev", tc_interface, "root")
 
-		/*var tc_out bytes.Buffer
-		var tc_err bytes.Buffer
-		cmd.Stdout = &tc_out
-		cmd.Stderr = &tc_err
-		err := cmd.Run()
-		if err != nil {
-			fmt.Errorf("failed to delete qdisc using TC but still continuing", err, tc_err.String())
-			//This is okay you can continue if err is
-			//RTNETLINK answers: No such file or directory
-		}
-        */     
-		//Add default qdisc root
-		//tc qdisc add dev em49 parent root handle 1: htb default 99
-		/* TO DO : NEED TO REVISIT , NOT SURE WHETHER NEWHTB OR HTBCLASS NEED TO USE
-		*/
-		{   interfaceLink,error := netlink.LinkByName(tc_interface)
+		
+		   interfaceLink,error := netlink.LinkByName(tc_interface)
 		    var htb_attr netlink.QdiscAttrs
-		    for _, index := range interfaceLink{
 		    	var cls_attr = netlink.ClassAttrs{
 		    		Parent:    netlink.HANDLE_ROOT,
-		    		LinkIndex: InterfaceLink.ttr().Index,
+		    		LinkIndex: InterfaceLink.Attrs().Index,
 		    		Handle:    mjr_handle
 		    	}
-		    	cls_attrs= append(cls_attrs, cls_attr)
-		    }
-		    err := netlink.QdiscAdd(netlink.NewHtbClass(cls_attrs, htb_attr))
+
+		    err := netlink.QdiscAdd(netlink.NewHtb(htb_attr))
 		    if err != nil {
 		    	err = fmt.Errorf("Failed to add htb default qdisc on interface %s : %v", interfaceName, err)
 		    	return err
 		    }
-			/*cmd := exec.Command(tc_binary, "qdisc", "add", "dev", tc_interface, "parent", "root", "handle", mjr_handle, "htb", "default", "999")
-			var tc_out bytes.Buffer
-			var tc_err bytes.Buffer
-			cmd.Stdout = &tc_out
-			cmd.Stderr = &tc_err
-			err := cmd.Run()
-			if err != nil {
-				err := fmt.Errorf("failed to add qdisc using TC,%s", err, tc_err.String())
-				return err
-			}*/
-
-		}
-
-		//fmt.Println("major id:, minor id: classid:  ruleCount: hostPort", nw.majorClassId, nw.minorClassId, nw.classId, ruleCount, nw.srcPort)
 
 	}
 
 	// add class for a container and filter
 	//ex: tc class add dev em49 parent 1: classid 1:1 htb rate 100mbit burst 4000 ceil 150mbit prio 0
-	{
-		var htb_attr netlink.QdiscAttrs{
+		var htb_attr netlink.htbClassAttrs{
 		    	Rate:    set_rate,
 		    	Buffer:  4000, // assuming this refer to  burst
 		    	Ceil:    set_ceil,
 		    	Prio:    0
 		    }
-		interfaceLink, error := getInterface(tc_interface)
-		for _, index := range interfaceLink{
+		interfaceLink, error := netlink.LinkByName(tc_interface)
 			var cls_attr netlink.ClassAttrs{
 				Parent:    netlink.HANDLE_ROOT,
-		    	LinkIndex: index,
+		    	LinkIndex: interfaceLink.Attrs().Index,
 		    	Handle:    mjr_handle,
 		    	leaf:      cls_id
 			}
-			cls_attrs= append(cls_attrs, cls_attr)
-		}
-		err := netlink.QdiscAdd(netlink.NewHtbClass(cls_attrs, htb_attr))
+		err := netlink.ClassAdd(netlink.NewHtbClass(cls_attr, htb_attr))
 		    if err != nil {
 		    	err = fmt.Errorf("Failed to add htb class qdisc on interface %s : %v", interfaceName, err)
 		    	return err
 		    }
-		/*cmd := exec.Command(tc_binary, "class", "add", "dev", tc_interface, "parent", mjr_handle, "classid", cls_id, "htb",
-			"rate", set_rate, "burst", "4000", "ceil", set_ceil, "prio", "0")
-
-		var tc_out bytes.Buffer
-		var tc_err bytes.Buffer
-		cmd.Stdout = &tc_out
-		cmd.Stderr = &tc_err
-		err := cmd.Run()
-		if err != nil {
-			err := fmt.Errorf("failed to add  class using TC,%s", err, tc_err.String())
-			return err
-		}
-          */
+		
 	}
 	//Add cgroup Filter
 	if nw.srcPort == "" && nw.dstPort == "" {
@@ -475,7 +418,8 @@ func (r Rules) verifyAndAddTC(create types.BandwidthCreateRequest, interfaceName
 		srcPort_inhex = fmt.Sprintf("%x", srcPort)
 		//TODO: makeHandle to  create ajor and minor handle
 		//tc filter add dev em49 protocol ip parent 1: prio 1 u32 match ip sport 45455  0xffff flowid 1:1
-		
+		// NOT SURE THIS IS THE  APPROPRIATE
+		/*
 		u32SelKeys := []TcU32Key{
 			{
 				Mask: 0xffff0000,
@@ -509,8 +453,8 @@ func (r Rules) verifyAndAddTC(create types.BandwidthCreateRequest, interfaceName
            if err := FilterAdd(u32_filter_attr); err != nil{
            	 err = fmt.Errorf("Failed to add tc-u32 filter: %v", err)
            	 return err
-           }
-			/*cmd := exec.Command(tc_binary, "filter", "add", "dev", tc_interface, "protocol", "ip", "parent", mjr_handle,
+           }*/
+			cmd := exec.Command(tc_binary, "filter", "add", "dev", tc_interface, "protocol", "ip", "parent", mjr_handle,
 				"prio", filter_priority, "u32", "match", "ip", "sport", srcPort, "0xffff", "flowid", cls_id)
 
 			var tc_out bytes.Buffer
@@ -521,7 +465,7 @@ func (r Rules) verifyAndAddTC(create types.BandwidthCreateRequest, interfaceName
 			if err != nil {
 				err := fmt.Errorf("failed to add filter using TC,%s", err, tc_err.String())
 				return err
-			}*/
+			}
 
 		}
 		
@@ -569,44 +513,28 @@ func (r Rules) deleteClass(Container string, interfaceName string) error {
 	// delete a class
 	//ex: tc class add dev em49 parent 1: classid 1:1 htb rate 100mbit burst 4000 ceil 150mbit prio 0
 	//    tc class delete dev em49 parent 10: classid 10:2 htb rate 10mbit burst 4000 ceil 15mbit prio 0
-	{
-	var htb_attr netlink.QdiscAttrs{
+
+	var htb_attr netlink.HtbClassAttrs{
 		    	Rate:    set_rate,
 		    	Buffer:  4000, // assuming this refer to  burst
 		    	Ceil:    set_ceil,
 		    	Prio:    0
 		    }
-		interfaceLink, error := getInterface(tc_interface)
-		for _, index := range interfaceLink{
+		interfaceLink, error := netlink.LinkByName(tc_interface)
+		if error {
+		    fmt.Errorf("Failed to get interface %s",tc_interface)
+		}
 			var cls_attr netlink.ClassAttrs{
 				Parent:    netlink.HANDLE_ROOT,
-		    	LinkIndex: index,
+		    	LinkIndex: interfaceLink.Attrs().Index,
 		    	Handle:    mjr_handle,
 		    	leaf:      cls_id
 			}
-			cls_attrs= append(cls_attrs, cls_attr)
-		}
-		err := netlink.QdiscDel(netlink.NewHtbClass(cls_attrs, htb_attr))
+		err := netlink.ClassDel(netlink.NewHtbClass(cls_attr, htb_attr))
 		    if err != nil {
-		    	fmt.Errorf("Failed to delete htb class qdisc on interface %s : %v", interfaceName, err)
+		    	fmt.Errorf("Failed to delete htb class on interface %s : %v", interfaceName, err)
 		    }
-		/*cmd := exec.Command(tc_binary, "class", "delete", "dev", tc_interface, "parent", mjr_handle, "classid", cls_id, "htb",
-			"rate", set_rate, "burst", "4000", "ceil", set_ceil, "prio", "0")
-
-		var tc_out bytes.Buffer
-		var tc_err bytes.Buffer
-		cmd.Stdout = &tc_out
-		cmd.Stderr = &tc_err
-		err := cmd.Run()
-		if err != nil {
-			err := fmt.Errorf("failed to delete class using TC,%s", err, tc_err.String())
-			return err
-		}
-*/
-	}
-	//TOdo: add the set_rate/speed to total remaining speed
-
-	return nil
+return nil
 }
 
 func (r Rules) deleteFilter(Container string, interfaceName string) error {
@@ -623,24 +551,29 @@ func (r Rules) deleteFilter(Container string, interfaceName string) error {
 	mjr_handle := fmt.Sprintf("%x:", nw.majorClassId)
 	minor_handle := fmt.Sprintf("%x", nw.minorClassId)
 	cls_id := fmt.Sprintf("%s%x", mjr_handle, nw.minorClassId)
-
+    link, err := netlink.LinkByName(tc_interface)
+    if err {
+    	fmt.Errorf("Failed to interface: %s for deleting filter", tc_interface)
+    	return err
+    }
 	if nw.srcPort == "" && nw.dstPort == "" {
 		//tc filter delete dev em49 protocol all parent 10: prio 1
-		{
-			cmd := exec.Command(tc_binary, "filter", "delete", "dev", tc_interface, "protocol", "all", "parent", mjr_handle,
-				"prio", minor_handle)
-
-			var tc_out bytes.Buffer
-			var tc_err bytes.Buffer
-			cmd.Stdout = &tc_out
-			cmd.Stderr = &tc_err
-			err := cmd.Run()
-			if err != nil {
-				err := fmt.Errorf("failed to delete cgroup filter using TC,%s", err, tc_err.String())
-				return err
-			}
-
+		filter_del := &MatchAll{
+		FilterAttrs{
+		LinkIndex: link.Attrs().Index,
+		Parent: strconv.Atoi(fmt.Sprintf("%04x", nw.majorClassId)),
+		//Handle: strconv.Atoi(fmt.Sprintf("%04x", nw.minorClassId)),
+		//Priority : 1, //or 
+		Priority : strconv.Atoi(fmt.Sprintf("%04x", nw.minorClassId)),
+		Protocol: unix.ETH_P_ALL,
+		}}
+		
+		if err := netlink.FilterDel(filter_del); err != nil {
+			fmt.Errorf("Failed to delete filter on interface %s", tc_interface)
+			return err
 		}
+	}
+
 		return nil
 	}
 
@@ -662,7 +595,6 @@ func (r Rules) deleteFilter(Container string, interfaceName string) error {
 		}
 	}
 
-	/*
 		           // If you set priority for src and dst port differently, then enable this delete
 			   srcPort := nw.srcPort
 			   //tc filter delete dev em49 protocol ip parent 1: prio 1 u32 match ip dport 45455  0xffff flowid 1:1
@@ -680,7 +612,7 @@ func (r Rules) deleteFilter(Container string, interfaceName string) error {
 			                   return err
 			           }
 			   }
-	*/
+	
 
 	return nil
 }
